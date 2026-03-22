@@ -26,17 +26,17 @@ func  applyDecay(p *Plot) {
 	p.Hydration = clamp(p.Hydration - 0.2, 0, 100)
 	p.Weeds = clamp(p.Weeds + 0.1, 0, 100)
 	//TODO: basic health decay formula, should be adjusted
-	p.Health = clamp(p.Health - p.Weeds, 0, 100)
+	p.Health = clamp(p.Hydration - p.Weeds, 0, 100)
 }
 
 func handleWater(p *Plot) {
 	p.Hydration = clamp(p.Hydration + 5, 0, 100)
-	p.Health = clamp(p.Health - p.Weeds, 0, 100)
+	p.Health = clamp(p.Hydration - p.Weeds, 0, 100)
 }
 
 func handleWeed(p *Plot) {
 	p.Weeds = clamp(p.Weeds - 2, 0, 100)
-	p.Health = clamp(p.Health - p.Weeds, 0, 100)
+	p.Health = clamp(p.Hydration - p.Weeds, 0, 100)
 }
 
 func handlePlant(p *Plot) error {
