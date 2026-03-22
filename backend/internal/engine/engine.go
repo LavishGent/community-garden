@@ -71,6 +71,8 @@ func (e *GardenEngine) handleEvent(event Event) {
 	}
 	//? Should we increment on the event itself? 
 	//? this could be a race condition maybe??
+
+	//! no it's a signle go routine
 	plot.Version++
 }
 
