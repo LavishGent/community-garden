@@ -1,6 +1,8 @@
 package engine
 
-import "community-garden/backend/internal/engine"
+import (
+	"errors"
+)
 
 // Potentially could be extracted to it's own package but part of PoC we're leaving it in the engine
 
@@ -20,18 +22,27 @@ func clamp(v, min, max float64) float64 {
 	return v
 }
 
-func (e *engine ) applyDecay(id) {
-	// do event on e.plot
+func  applyDecay(p *Plot) {
+	p.Hydration = clamp(p.Hydration - 0.2, 0, 100)
+	p.Weeds = clamp(p.Weeds + 0.1, 0, 100)
+	//TODO: basic health decay formula, should be adjusted
+	p.Health = clamp(p.Health - p.Weeds, 0, 100)
 }
 
-func handleWater(plot *Plot) {
-
+func handleWater(p *Plot) {
+	p.Hydration = clamp(p.Hydration + 5, 0, 100)
+	p.Health = clamp(p.Health - p.Weeds, 0, 100)
 }
 
-func handleWeed(plot *Plot) {
-
+func handleWeed(p *Plot) {
+	p.Weeds = clamp(p.Weeds - 2, 0, 100)
+	p.Health = clamp(p.Health - p.Weeds, 0, 100)
 }
 
-func handlePlant(plot *Plot) {
-
+func handlePlant(p *Plot) error {
+	if p.Occupied {
+		return errors.New("plot_occupied")
+	}
+	p.Occupied = true
+	return nil
 }
