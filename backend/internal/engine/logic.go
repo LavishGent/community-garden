@@ -50,10 +50,26 @@ func applyDecay(p *Plot) {
 		}
 	}
 
-	if p.Health > 0 {
-		// Growth is scaled by health
-		growthMultiplier := p.Health / 100.0
-		p.Growth = clamp(p.Growth+cropProfile.GrowthRate*growthMultiplier, 0, 100)
+	if p.Health > 0 && p.Hydration > 0 {
+		// Growth is restricted by health, hydration, and weeds
+		// 1. Health multiplier (0.0 - 1.0)
+		healthMult := p.Health / 100.0
+
+		// 2. Hydration multiplier: Growth slows significantly as it dries
+		// Below 20% hydration, growth drops off sharply
+		hydrationMult := p.Hydration / 100.0
+		if p.Hydration < 20 {
+			hydrationMult = (p.Hydration / 20.0) * 0.2 // Non-linear drop
+		}
+
+		// 3. Weed penalty: High weeds choke the plant
+		weedPenalty := 1.0
+		if p.Weeds > 30 {
+			weedPenalty = clamp(1.0-((p.Weeds-30)/70.0), 0.1, 1.0)
+		}
+
+		totalMultiplier := healthMult * hydrationMult * weedPenalty
+		p.Growth = clamp(p.Growth+cropProfile.GrowthRate*totalMultiplier, 0, 100)
 	}
 }
 
