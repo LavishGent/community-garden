@@ -62,8 +62,9 @@ type Plot struct {
 }
 
 type Garden struct {
-	Plots map[string]*Plot `json:"plots"`
-	Score uint64           `json:"score"`
+	Plots   map[string]*Plot `json:"plots"`
+	Score   uint64           `json:"score"`
+	Version uint64           `json:"version"`
 }
 
 func NewGarden() *Garden {

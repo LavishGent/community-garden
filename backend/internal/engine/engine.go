@@ -1,22 +1,40 @@
 package engine
 
 import (
+	"context"
 	"encoding/json"
+	"log"
 	"time"
+
+	"community-garden/backend/internal/store"
 )
 
 type GardenEngine struct {
 	garden    *Garden
 	events    chan Event
 	broadcast chan<- []byte
+	store     *store.RedisStore
+	external  chan []byte
 }
 
-func NewGardenEngine(broadcast chan<- []byte) *GardenEngine {
-	return &GardenEngine{
+func NewGardenEngine(broadcast chan<- []byte, redisStore *store.RedisStore) *GardenEngine {
+	e := &GardenEngine{
 		garden:    NewGarden(),
-		events:    make(chan Event, 50), // buffered channel to hold events, not sure what the best size is at the moment
+		events:    make(chan Event, 50),
 		broadcast: broadcast,
+		store:     redisStore,
+		external:  make(chan []byte, 16),
 	}
+	if redisStore != nil {
+		if data, err := redisStore.LoadState(); err == nil && data != nil {
+			var garden Garden
+			if err := json.Unmarshal(data, &garden); err == nil {
+				e.garden = &garden
+				log.Println("Loaded garden state from Redis")
+			}
+		}
+	}
+	return e
 }
 
 func (e *GardenEngine) Events() chan<- Event {
@@ -36,10 +54,42 @@ func (e *GardenEngine) BroadcastState() {
 	}
 	data, err := json.Marshal(msg)
 	if err != nil {
-		// handle error
 		return
 	}
 	e.broadcast <- data
+}
+
+func (e *GardenEngine) persistState() {
+	if e.store == nil {
+		return
+	}
+	e.garden.Version++
+	data, err := json.Marshal(e.garden)
+	if err != nil {
+		return
+	}
+	if err := e.store.SaveState(data); err != nil {
+		log.Println("Redis save error:", err)
+	}
+	if err := e.store.Publish(data); err != nil {
+		log.Println("Redis publish error:", err)
+	}
+}
+
+func (e *GardenEngine) applyExternalState(data []byte) {
+	var incoming Garden
+	if err := json.Unmarshal(data, &incoming); err != nil {
+		return
+	}
+	if incoming.Version > e.garden.Version {
+		e.garden = &incoming
+	}
+}
+
+func (e *GardenEngine) subscribeExternal(ctx context.Context) {
+	for data := range e.store.Subscribe(ctx) {
+		e.external <- data
+	}
 }
 
 func (e *GardenEngine) handleEvent(event Event) {
@@ -53,7 +103,6 @@ func (e *GardenEngine) handleEvent(event Event) {
 		return
 	}
 	var err error
-	//switch case on event type
 	switch event.Type {
 	case Water:
 		handleWater(plot)
@@ -91,15 +140,25 @@ func (e *GardenEngine) SendError(reply chan<- []byte, errMsg string) {
 func (e *GardenEngine) Run() {
 	broadcastTicker := time.NewTicker(1 * time.Millisecond)
 	decayTicker := time.NewTicker(1 * time.Second)
+	saveTicker := time.NewTicker(30 * time.Second)
+
+	if e.store != nil {
+		go e.subscribeExternal(context.Background())
+	}
+
 	for {
 		select {
 		case event := <-e.events:
 			e.handleEvent(event)
+			e.persistState()
 		case <-decayTicker.C:
 			e.applyDecayAll()
+		case <-saveTicker.C:
+			e.persistState()
 		case <-broadcastTicker.C:
-			//broadcast the updated garden state to all clients
 			e.BroadcastState()
+		case data := <-e.external:
+			e.applyExternalState(data)
 		}
 	}
 }

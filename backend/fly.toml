@@ -12,6 +12,7 @@ primary_region = 'iad'
 
 [env]
   PORT = '8080'
+  # REDIS_URL = 'redis://...'  # Set via: fly secrets set REDIS_URL=redis://...
 
 [http_service]
   internal_port = 8080
