@@ -2,28 +2,34 @@
 
 React 19 + TypeScript client for the Community Garden real-time multiplayer simulation.
 
+---
+
 ## Tech Stack
 
-* **React 19** + **TypeScript** (Vite)
-* **Tailwind CSS** for layout and UI
-* **React-Konva** for canvas-based garden rendering with pixel-art crop sprites
+- **React 19** + **TypeScript** via [Vite](https://vitejs.dev/)
+- **Tailwind CSS** — utility-first styling and layout
+- **React-Konva** — canvas-based garden rendering with pixel-art crop sprites
 
-## Structure
+---
+
+## Project Structure
 
 ```
 src/
 ├── App.tsx                    # Root component — WebSocket wiring, error banner, layout
 ├── hooks/
-│   └── useSocket.ts           # WebSocket hook: connects, parses STATE/ERROR messages
+│   └── useSocket.ts           # WebSocket hook: connect, parse STATE / ERROR messages, reconnect
 └── components/
-    ├── Garden.tsx             # Renders the 5×5 grid of plots on a Konva canvas
-    ├── Plot.tsx               # Single plot: sprite, health/hydration/weed bars, action buttons
-    └── cropSprites.ts         # Pixel-art sprite data (16×16) for all crops & growth stages
+    ├── Garden.tsx             # 5×5 Konva canvas grid — renders all plots
+    ├── Plot.tsx               # Single plot: sprite, health / hydration / weed bars, action buttons
+    └── cropSprites.ts         # 16×16 pixel-art sprite data for all crops and growth stages
 ```
+
+---
 
 ## WebSocket Protocol
 
-Messages sent to the server:
+**Sent to server:**
 
 ```json
 { "type": "WATER",   "plotId": "A1", "version": 3 }
@@ -33,18 +39,30 @@ Messages sent to the server:
 { "type": "REMOVE",  "plotId": "E5", "version": 5 }
 ```
 
-Messages received from the server:
+**Received from server:**
 
 ```json
-{ "type": "STATE",  "garden": { "plots": { ... }, "score": 42 } }
-{ "type": "ERROR",  "message": "plot_occupied" }
+{ "type": "STATE", "garden": { "plots": { "A1": { ... } }, "score": 42 } }
+{ "type": "ERROR", "message": "version_conflict" }
 ```
+
+The `version` field on outbound messages implements **optimistic concurrency** — the server rejects actions that were based on stale state.
+
+---
 
 ## Environment
 
-| Variable      | Default                    | Description              |
-|---------------|----------------------------|--------------------------|
-| `VITE_WS_URL` | `ws://localhost:8080/ws`   | WebSocket server address |
+| Variable      | Default                    | Description                        |
+|---------------|----------------------------|------------------------------------|
+| `VITE_WS_URL` | `ws://localhost:8080/ws`   | WebSocket server address to connect to |
+
+Set in a `.env.local` file for local overrides:
+
+```bash
+VITE_WS_URL=ws://my-server.fly.dev/ws
+```
+
+---
 
 ## Running Locally
 
@@ -52,3 +70,14 @@ Messages received from the server:
 npm install
 npm run dev
 ```
+
+The dev server starts at `http://localhost:5173`.
+
+**Other commands:**
+
+```bash
+npm run build    # Production build → dist/
+npm run preview  # Preview production build locally
+npm run lint     # ESLint
+```
+

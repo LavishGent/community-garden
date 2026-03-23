@@ -1,22 +1,18 @@
-# 🌱 Community Garden (Real-Time Multiplayer Simulation)
+# 🌱 Community Garden
 
-## 🧠 Overview
+> A real-time, multiplayer garden simulation — a distributed coordination system disguised as a game.
 
-This project is a **real-time, multiplayer community garden simulation** where users collaboratively maintain a shared garden.
-
-* The garden **degrades over time**
-* Users perform actions to **keep it alive**
-* All updates happen **in real time via WebSockets**
-* The system is **server-authoritative** and runs entirely **in memory**
+Players share a **5×5 plot grid** and race against entropy to keep their crops alive. The garden degrades continuously; only coordinated watering, weeding, planting, and harvesting keeps the score climbing. Every state change is server-authoritative and pushed to all connected clients over WebSockets in real time.
 
 ---
 
-## 🎯 Goals
+## ⚙️ Tech Stack
 
-* Learn **real-time systems**
-* Practice **Go concurrency patterns (actor model)**
-* Build **event-driven architecture**
-* Avoid premature complexity (no DB for MVP)
+| Layer     | Technology |
+|-----------|------------|
+| Backend   | Go · `gorilla/websocket` · Redis (optional persistence) |
+| Frontend  | React 19 + TypeScript · Vite · Tailwind CSS · React-Konva |
+| Infra     | Docker Compose (local Redis) · Fly.io (production) |
 
 ---
 
@@ -24,32 +20,24 @@ This project is a **real-time, multiplayer community garden simulation** where u
 
 ```
 React Client(s)
-     ↓ WebSocket
-Go WebSocket Server
-     ↓
-Garden Engine (single goroutine)
-     ├── State (garden + plots)
-     ├── Event Queue (buffered channel)
-     ├── Decay Ticker (1s)
-     └── Broadcast Ticker (1ms)
+     │  WebSocket (JSON)
+     ▼
+Go HTTP Server (:8080)
+     │
+     ▼
+WebSocket Hub ──── broadcast channel ────▶ all clients
+     │
+     ▼
+Garden Engine  (single goroutine — no mutexes)
+     ├── Event Queue     (buffered channel)
+     ├── Decay Ticker    (1 s)
+     └── Broadcast Ticker (1 ms)
+     │
+     ▼
+Redis Store  (optional — snapshot + restore on restart)
 ```
 
----
-
-## ⚙️ Tech Stack
-
-### Backend
-
-* Go
-* WebSockets (`gorilla/websocket`)
-* In-memory state (no database)
-
-### Frontend
-
-* React 19 + TypeScript (Vite)
-* Tailwind CSS
-* React-Konva (canvas rendering with pixel-art crop sprites)
-* WebSocket client
+The engine runs as an **actor**: all state mutations happen on one goroutine, eliminating races by design. Redis is used purely for snapshotting; the authoritative state always lives in memory.
 
 ---
 
@@ -57,31 +45,33 @@ Garden Engine (single goroutine)
 
 ```
 community-garden/
+├── justfile                     # dev, build, test, deploy commands
+├── docker-compose.yml           # local Redis
+│
 ├── backend/
-│   ├── cmd/server/main.go
+│   ├── cmd/server/main.go       # entrypoint, wiring
 │   ├── internal/
 │   │   ├── engine/
-│   │   │   ├── engine.go     # engine loop, event dispatch, broadcast
-│   │   │   ├── models.go     # types, crop profiles, garden/plot init
-│   │   │   └── logic.go      # action & decay handlers
-│   │   └── ws/
-│   │       ├── handler.go    # WebSocket upgrader
-│   │       ├── client.go     # per-connection read/write pumps
-│   │       └── hub.go        # broadcast hub
+│   │   │   ├── engine.go        # event loop, decay + broadcast tickers
+│   │   │   ├── models.go        # Garden, Plot, CropProfile types
+│   │   │   └── logic.go         # action & decay handlers
+│   │   ├── ws/
+│   │   │   ├── handler.go       # WebSocket upgrader
+│   │   │   ├── client.go        # per-connection read / write pumps
+│   │   │   └── hub.go           # fan-out broadcast hub
+│   │   └── store/
+│   │       └── redis.go         # snapshot persistence
 │   └── go.mod
 │
-├── frontend/
-│   ├── src/
-│   │   ├── App.tsx
-│   │   ├── hooks/useSocket.ts
-│   │   └── components/
-│   │       ├── Garden.tsx
-│   │       ├── Plot.tsx
-│   │       └── cropSprites.ts  # pixel-art sprite data (16×16)
-│   ├── index.html
-│   └── package.json
-│
-└── README.md
+└── frontend/
+    ├── src/
+    │   ├── App.tsx              # root — WebSocket wiring, layout
+    │   ├── hooks/useSocket.ts   # connect, parse STATE / ERROR
+    │   └── components/
+    │       ├── Garden.tsx       # 5×5 Konva canvas grid
+    │       ├── Plot.tsx         # sprite + stat bars + action buttons
+    │       └── cropSprites.ts   # 16×16 pixel-art sprite data
+    └── package.json
 ```
 
 ---
@@ -90,9 +80,9 @@ community-garden/
 
 ### Garden
 
-The garden is a **5×5 grid** of 25 plots (IDs: A1–E5).
+A **5×5 grid** of 25 plots (IDs `A1`–`E5`) plus a running score.
 
-```
+```go
 type Garden struct {
     Plots map[string]*Plot
     Score uint64
@@ -101,342 +91,142 @@ type Garden struct {
 
 `Score` accumulates as players harvest crops.
 
----
-
 ### Plot
 
-```
+```go
 type Plot struct {
     ID        string
     Crop      CropType  // NONE | CORN | WHEAT | COTTON | STRAWBERRY
-    Growth    float64   // 0–100
-    Hydration float64   // 0–100
-    Weeds     float64   // 0–100
+    Growth    float64   // 0-100
+    Hydration float64   // 0-100
+    Weeds     float64   // 0-100
+    Health    float64   // 0-100 (derived: clamp(Hydration - Weeds, 0, 100))
     Occupied  bool
-    Health    float64   // 0–100
     Version   int       // optimistic concurrency token
 }
 ```
 
----
-
 ### Crop Profiles
 
-Each crop has a unique profile that governs its simulation behaviour:
-
-| Crop       | ThirstRate | WeedSusceptibility | GrowthRate | HarvestScore |
-|------------|------------|-------------------|------------|--------------|
-| Corn       | 0.5        | 0.10              | 0.8        | 1            |
-| Wheat      | 0.1        | 0.05              | 0.4        | 2            |
-| Cotton     | 0.2        | 0.25              | 0.4        | 3            |
-| Strawberry | 0.6        | 0.40              | 1.2        | 4            |
-
----
-
-### Event
-
-```
-type Event struct {
-    Type    EventType     // WATER | WEED | PLANT | HARVEST | REMOVE
-    PlotID  string
-    Crop    CropType
-    Version int           // must match plot's current version
-    Reply   chan<- []byte // engine sends errors back on this channel
-}
-```
+| Crop           | ThirstRate | WeedSusceptibility | GrowthRate | HarvestScore |
+|----------------|------------|---------------------|------------|--------------|
+| Corn           | 0.5        | 0.10                | 0.8        | 1            |
+| Wheat          | 0.1        | 0.05                | 0.4        | 2            |
+| Cotton         | 0.2        | 0.25                | 0.4        | 3            |
+| Strawberry     | 0.6        | 0.40                | 1.2        | 4            |
 
 ---
 
 ## 🔁 Simulation Engine
 
-### Core Concept
-
-The entire game state lives inside a **single goroutine** — no mutexes, no race conditions, deterministic updates.
-
----
-
-### Event Loop
+The engine runs as a Go **actor** — a single goroutine that owns all garden state. No mutexes, no races. Clients submit `Event` structs onto a buffered channel; the engine processes them one at a time.
 
 ```go
-func (e *GardenEngine) Run() {
-    broadcastTicker := time.NewTicker(1 * time.Millisecond)
-    decayTicker     := time.NewTicker(1 * time.Second)
-
-    for {
-        select {
-        case event := <-e.events:
-            e.handleEvent(event)
-        case <-decayTicker.C:
-            e.applyDecayAll()
-        case <-broadcastTicker.C:
-            e.BroadcastState()
-        }
+for {
+    select {
+    case event := <-e.events:   // player action
+        e.handleEvent(event)
+    case <-decayTicker.C:       // every 1 s  — degrade all plots
+        e.applyDecayAll()
+    case <-broadcastTicker.C:   // every 1 ms — push state to all clients
+        e.BroadcastState()
     }
 }
 ```
 
----
-
-### Optimistic Concurrency
-
-Every event must carry the plot's current `Version`. If it doesn't match, the engine rejects the action with an `ERROR` message. This prevents stale actions from clobbering concurrent updates.
-
----
-
-## ⏱️ Simulation Rules
-
-### Decay (every second, per occupied plot)
-
-Each tick applies the crop's profile values:
+### Decay (per occupied plot, every second)
 
 ```
-plot.Hydration -= crop.ThirstRate
-plot.Weeds     += crop.WeedSusceptibility
-plot.Health     = clamp(plot.Hydration - plot.Weeds, 0, 100)
+Hydration -= crop.ThirstRate
+Weeds     += crop.WeedSusceptibility
+Health     = clamp(Hydration - Weeds, 0, 100)
+if Health > 0 { Growth += crop.GrowthRate }
 ```
-
-Growth only advances while the crop is alive (`Health > 0`):
-
-```
-plot.Growth += crop.GrowthRate
-```
-
----
 
 ### Actions
 
-#### WATER
-Raises hydration by 20 (no-op if already full or crop is dead):
-```
-plot.Hydration += 20
-plot.Health     = clamp(plot.Hydration - plot.Weeds, 0, 100)
-```
+| Action    | Precondition                     | Effect |
+|-----------|----------------------------------|--------|
+| `WATER`   | Occupied, alive, not full        | `Hydration += 20`, recalculate Health |
+| `WEED`    | Occupied, alive, weeds > 0       | `Weeds -= 2`, recalculate Health |
+| `PLANT`   | Empty or dead crop               | Reset all stats to 100/0/100/0 |
+| `HARVEST` | `Growth == 100` and `Health > 0` | Add `HarvestScore` to Score, clear plot |
+| `REMOVE`  | `Health == 0`                    | Clear plot, reset to neutral (Hydration 50) |
 
-#### WEED
-Reduces weeds by 2 (no-op if weeds are 0 or crop is dead):
-```
-plot.Weeds  -= 2
-plot.Health  = clamp(plot.Hydration - plot.Weeds, 0, 100)
-```
+### Optimistic Concurrency
 
-#### PLANT
-Plants a crop. Allowed on empty plots or plots with a dead crop:
-```
-plot.Crop      = crop
-plot.Hydration = 100
-plot.Weeds     = 0
-plot.Health    = 100
-plot.Growth    = 0
-plot.Occupied  = true
-```
-
-#### HARVEST
-Harvests a fully grown, living crop (`Growth == 100`, `Health > 0`). Adds `crop.HarvestScore` to `garden.Score` and clears the plot.
-
-#### REMOVE
-Removes a dead crop (`Health == 0`) from an occupied plot. Resets the plot to neutral state (`Hydration = 50`, `Health = 50`).
-
----
-
-## ⚔️ Conflict Resolution
-
-### Strategy: Server-Authoritative + First-Write Wins
-
-All actions are validated on the server:
-
-```
-if plot.Occupied {
-    reject
-}
-```
-
----
-
-### Versioning (Optional)
-
-Prevents stale updates:
-
-```
-if event.Version != plot.Version {
-    reject
-}
-```
-
-On success:
-
-```
-plot.Version++
-```
-
----
-
-### Error Response
-
-```
-{
-  "type": "ERROR",
-  "message": "plot_taken"
-}
-```
+Every client message carries the `version` it last observed. If `event.Version != plot.Version`, the engine rejects the action with an `ERROR` message, preventing stale writes from clobbering concurrent updates. On a successful action `plot.Version` is incremented.
 
 ---
 
 ## 📡 WebSocket Protocol
 
-### Client → Server
+**Client to Server**
 
-```
-{
-  "type": "WATER",
-  "plotId": "A1",
-  "version": 2
-}
-```
-
----
-
-### Server → Client
-
-#### State Update
-
-```
-{
-  "type": "STATE",
-  "garden": { ... }
-}
+```json
+{ "type": "WATER",   "plotId": "A1", "version": 3 }
+{ "type": "WEED",    "plotId": "B2", "version": 7 }
+{ "type": "PLANT",   "plotId": "C3", "version": 0, "crop": "CORN" }
+{ "type": "HARVEST", "plotId": "D4", "version": 12 }
+{ "type": "REMOVE",  "plotId": "E5", "version": 5 }
 ```
 
-#### Error
+**Server to Client**
 
-```
-{
-  "type": "ERROR",
-  "message": "version_conflict"
-}
+```json
+{ "type": "STATE", "garden": { "plots": { "A1": { ... } }, "score": 42 } }
+{ "type": "ERROR", "message": "version_conflict" }
 ```
 
 ---
 
-## ⚛️ Frontend Responsibilities
+## 🚀 Quick Start
 
-* Maintain WebSocket connection
-* Render garden grid
-* Send actions
-* Handle updates + errors
+### Prerequisites
 
----
+- Go 1.21+
+- Node.js 20+
+- Docker (for local Redis) — optional
+- [just](https://github.com/casey/just) — optional but recommended
 
-## 🎨 UI Behavior
+### With `just` (recommended)
 
-Each plot:
+```bash
+# Backend + Redis (hot-reload via air)
+just dev
 
-* Color-coded by health:
+# Backend only, no Redis
+just dev-no-redis
 
-  * 🟢 Healthy
-  * 🟡 Warning
-  * 🔴 Critical
-
-* Interactions:
-
-  * Click → water
-  * Right-click → weed
-
----
-
-## 🚀 Getting Started
-
-### 1. Run Backend
-
+# Frontend (separate terminal)
+cd frontend && npm install && npm run dev
 ```
+
+### Without `just`
+
+```bash
+# Terminal 1 — backend
 cd backend
 go mod tidy
-go run cmd/server/main.go
-```
+REDIS_URL=redis://localhost:6379 go run cmd/server/main.go
+# omit REDIS_URL to run fully in-memory
 
-Server runs on:
-
-```
-http://localhost:8080
-```
-
----
-
-### 2. Run Frontend
-
-```
+# Terminal 2 — frontend
 cd frontend
 npm install
 npm run dev
 ```
 
-Open:
-
-```
-http://localhost:5173
-```
-
----
-
-## 🔥 Development Roadmap
-
-### Phase 1 (MVP)
-
-* WebSocket connection
-* Garden engine loop
-* Real-time updates
-
-### Phase 2
-
-* Plot grid system
-* Action handling
-* Conflict resolution
-
-### Phase 3
-
-* Versioning
-* Error handling
-* UI polish
-
-### Phase 4
-
-* Persistence (Postgres)
-* Scaling (Redis/pub-sub)
-* Authentication
+| Service   | URL |
+|-----------|-----|
+| Backend   | `http://localhost:8080` |
+| Frontend  | `http://localhost:5173` |
 
 ---
 
-## ⚠️ Limitations (Current)
+## 🔮 Roadmap
 
-* In-memory only (no persistence)
-* Single server instance
-* No authentication
-* No horizontal scaling
-
----
-
-## 🔮 Future Improvements
-
-* Snapshot state to database
-* Multi-server architecture
-* User accounts + leaderboards
-* Seasonal resets / events
-
----
-
-## 🧠 Key Concepts Learned
-
-* Event-driven architecture
-* Actor model in Go
-* Real-time systems with WebSockets
-* Conflict resolution strategies
-* Server-authoritative design
-
----
-
-## 💡 Final Thought
-
-This project is more than a game:
-
-> It’s a **real-time distributed coordination system disguised as a garden.**
-
----
+- [ ] User accounts + persistent leaderboards
+- [ ] Multi-server support via Redis Pub/Sub
+- [ ] Seasonal resets / community events
+- [ ] Spectator mode / replay
