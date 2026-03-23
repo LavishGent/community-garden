@@ -15,7 +15,7 @@ jobs:
         env:
           FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
-      - uses: superfly/flyctl-actions/setup-flyctl@master
+      - uses: superfly/flyctl-actions@1.5
         env:
           FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
