@@ -15,9 +15,8 @@ jobs:
         env:
           FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
-      - uses: superfly/flyctl-actions@1.5
-        env:
-          FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+      - name: Install flyctl
+        run: curl -L https://fly.io/install.sh | sh && echo "$HOME/.fly/bin" >> $GITHUB_PATH
 
       - run: fly deploy --remote-only
         working-directory: backend
