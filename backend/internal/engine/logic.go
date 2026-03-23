@@ -25,10 +25,35 @@ func applyDecay(p *Plot) {
 
 	p.Hydration = clamp(p.Hydration-cropProfile.ThirstRate, 0, 100)
 	p.Weeds = clamp(p.Weeds+cropProfile.WeedSusceptibility, 0, 100)
-	//TODO: basic health decay formula, should be adjusted
-	p.Health = clamp(p.Hydration-p.Weeds, 0, 100)
+
+	// Health decay logic
+	healthDecay := 0.0
+	if p.Hydration <= 0 {
+		healthDecay += 1.0 // Dries out
+	} else if p.Hydration < 20 {
+		healthDecay += 0.2 // Starting to dry
+	}
+
+	if p.Weeds >= 50 {
+		healthDecay += 0.3 // Choked by weeds
+	}
+	if p.Weeds >= 80 {
+		healthDecay += 0.7 // Seriously choked
+	}
+
+	if healthDecay > 0 {
+		p.Health = clamp(p.Health-healthDecay, 0, 100)
+	} else {
+		// Recovery if conditions are good
+		if p.Hydration > 80 && p.Weeds < 10 {
+			p.Health = clamp(p.Health+0.5, 0, 100)
+		}
+	}
+
 	if p.Health > 0 {
-		p.Growth = clamp(p.Growth+cropProfile.GrowthRate, 0, 100)
+		// Growth is scaled by health
+		growthMultiplier := p.Health / 100.0
+		p.Growth = clamp(p.Growth+cropProfile.GrowthRate*growthMultiplier, 0, 100)
 	}
 }
 
@@ -37,15 +62,13 @@ func handleWater(p *Plot) {
 		return
 	}
 	p.Hydration = clamp(p.Hydration+20, 0, 100)
-	p.Health = clamp(p.Hydration-p.Weeds, 0, 100)
 }
 
 func handleWeed(p *Plot) {
 	if p.Weeds == 0 || p.Health == 0 {
 		return
 	}
-	p.Weeds = clamp(p.Weeds-2, 0, 100)
-	p.Health = clamp(p.Hydration-p.Weeds, 0, 100)
+	p.Weeds = clamp(p.Weeds-10, 0, 100)
 }
 
 func handlePlant(p *Plot, crop *CropType) error {

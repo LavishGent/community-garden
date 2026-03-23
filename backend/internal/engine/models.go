@@ -25,27 +25,27 @@ type CropProfile struct {
 
 var CropConfig = map[CropType]CropProfile{
 	Corn: {
-		ThirstRate:         0.5,
-		WeedSusceptibility: 0.1,
-		GrowthRate:         0.8,
+		ThirstRate:         0.8,
+		WeedSusceptibility: 0.2,
+		GrowthRate:         0.6,
 		HarvestScore:       1,
 	},
 	Wheat: {
-		ThirstRate:         0.1,
-		WeedSusceptibility: 0.05,
+		ThirstRate:         0.4,
+		WeedSusceptibility: 0.1,
 		GrowthRate:         0.4,
 		HarvestScore:       2,
 	},
 	Cotton: {
-		ThirstRate:         0.2,
-		WeedSusceptibility: 0.25,
+		ThirstRate:         0.6,
+		WeedSusceptibility: 0.5,
 		GrowthRate:         0.4,
 		HarvestScore:       3,
 	},
 	Strawberry: {
-		ThirstRate:         0.6,
-		WeedSusceptibility: 0.4,
-		GrowthRate:         1.2,
+		ThirstRate:         1.5,
+		WeedSusceptibility: 0.3,
+		GrowthRate:         1.0,
 		HarvestScore:       4,
 	},
 }
