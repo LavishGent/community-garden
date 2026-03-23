@@ -18,6 +18,9 @@ jobs:
       - name: Setup flyctl
         uses: superfly/flyctl-actions/setup-flyctl@master
 
+      - name: Add flyctl to path and alias
+        run: echo "alias fly=flyctl" >> $GITHUB_ENV
+
       - name: Deploy to Fly.io
         run: flyctl deploy --remote-only
         working-directory: backend
