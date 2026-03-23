@@ -1,73 +1,54 @@
-# React + TypeScript + Vite
+# 🌱 Community Garden — Frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+React 19 + TypeScript client for the Community Garden real-time multiplayer simulation.
 
-Currently, two official plugins are available:
+## Tech Stack
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+* **React 19** + **TypeScript** (Vite)
+* **Tailwind CSS** for layout and UI
+* **React-Konva** for canvas-based garden rendering with pixel-art crop sprites
 
-## React Compiler
+## Structure
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```
+src/
+├── App.tsx                    # Root component — WebSocket wiring, error banner, layout
+├── hooks/
+│   └── useSocket.ts           # WebSocket hook: connects, parses STATE/ERROR messages
+└── components/
+    ├── Garden.tsx             # Renders the 5×5 grid of plots on a Konva canvas
+    ├── Plot.tsx               # Single plot: sprite, health/hydration/weed bars, action buttons
+    └── cropSprites.ts         # Pixel-art sprite data (16×16) for all crops & growth stages
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+## WebSocket Protocol
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+Messages sent to the server:
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```json
+{ "type": "WATER",   "plotId": "A1", "version": 3 }
+{ "type": "WEED",    "plotId": "B2", "version": 7 }
+{ "type": "PLANT",   "plotId": "C3", "version": 0, "crop": "CORN" }
+{ "type": "HARVEST", "plotId": "D4", "version": 12 }
+{ "type": "REMOVE",  "plotId": "E5", "version": 5 }
+```
+
+Messages received from the server:
+
+```json
+{ "type": "STATE",  "garden": { "plots": { ... }, "score": 42 } }
+{ "type": "ERROR",  "message": "plot_occupied" }
+```
+
+## Environment
+
+| Variable      | Default                    | Description              |
+|---------------|----------------------------|--------------------------|
+| `VITE_WS_URL` | `ws://localhost:8080/ws`   | WebSocket server address |
+
+## Running Locally
+
+```bash
+npm install
+npm run dev
 ```

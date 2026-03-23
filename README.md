@@ -29,8 +29,9 @@ Go WebSocket Server
      ↓
 Garden Engine (single goroutine)
      ├── State (garden + plots)
-     ├── Event Queue
-     └── Broadcast Loop
+     ├── Event Queue (buffered channel)
+     ├── Decay Ticker (1s)
+     └── Broadcast Ticker (1ms)
 ```
 
 ---
@@ -45,7 +46,9 @@ Garden Engine (single goroutine)
 
 ### Frontend
 
-* React (Vite)
+* React 19 + TypeScript (Vite)
+* Tailwind CSS
+* React-Konva (canvas rendering with pixel-art crop sprites)
 * WebSocket client
 
 ---
@@ -58,22 +61,23 @@ community-garden/
 │   ├── cmd/server/main.go
 │   ├── internal/
 │   │   ├── engine/
-│   │   │   ├── engine.go
-│   │   │   ├── models.go
-│   │   │   └── logic.go
+│   │   │   ├── engine.go     # engine loop, event dispatch, broadcast
+│   │   │   ├── models.go     # types, crop profiles, garden/plot init
+│   │   │   └── logic.go      # action & decay handlers
 │   │   └── ws/
-│   │       ├── handler.go
-│   │       ├── client.go
-│   │       └── hub.go
+│   │       ├── handler.go    # WebSocket upgrader
+│   │       ├── client.go     # per-connection read/write pumps
+│   │       └── hub.go        # broadcast hub
 │   └── go.mod
 │
 ├── frontend/
 │   ├── src/
-│   │   ├── App.jsx
-│   │   ├── hooks/useSocket.js
+│   │   ├── App.tsx
+│   │   ├── hooks/useSocket.ts
 │   │   └── components/
-│   │       ├── Garden.jsx
-│   │       └── Plot.jsx
+│   │       ├── Garden.tsx
+│   │       ├── Plot.tsx
+│   │       └── cropSprites.ts  # pixel-art sprite data (16×16)
 │   ├── index.html
 │   └── package.json
 │
@@ -86,11 +90,16 @@ community-garden/
 
 ### Garden
 
+The garden is a **5×5 grid** of 25 plots (IDs: A1–E5).
+
 ```
 type Garden struct {
     Plots map[string]*Plot
+    Score uint64
 }
 ```
+
+`Score` accumulates as players harvest crops.
 
 ---
 
@@ -99,15 +108,28 @@ type Garden struct {
 ```
 type Plot struct {
     ID        string
-    Crop      CropType // CORN, WHEAT, COTTON,
-    Growth    float64
-    Hydration float64
-    Weeds     float64
+    Crop      CropType  // NONE | CORN | WHEAT | COTTON | STRAWBERRY
+    Growth    float64   // 0–100
+    Hydration float64   // 0–100
+    Weeds     float64   // 0–100
     Occupied  bool
-    Health    float64
-    Version   int
+    Health    float64   // 0–100
+    Version   int       // optimistic concurrency token
 }
 ```
+
+---
+
+### Crop Profiles
+
+Each crop has a unique profile that governs its simulation behaviour:
+
+| Crop       | ThirstRate | WeedSusceptibility | GrowthRate | HarvestScore |
+|------------|------------|-------------------|------------|--------------|
+| Corn       | 0.5        | 0.10              | 0.8        | 1            |
+| Wheat      | 0.1        | 0.05              | 0.4        | 2            |
+| Cotton     | 0.2        | 0.25              | 0.4        | 3            |
+| Strawberry | 0.6        | 0.40              | 1.2        | 4            |
 
 ---
 
@@ -115,11 +137,11 @@ type Plot struct {
 
 ```
 type Event struct {
-    Type    string
+    Type    EventType     // WATER | WEED | PLANT | HARVEST | REMOVE
     PlotID  string
     Crop    CropType
-    Version int
-    Reply   chan<- []byte
+    Version int           // must match plot's current version
+    Reply   chan<- []byte // engine sends errors back on this channel
 }
 ```
 
@@ -129,28 +151,25 @@ type Event struct {
 
 ### Core Concept
 
-The entire system runs inside a **single goroutine**:
-
-* No locks
-* No race conditions
-* Deterministic updates
+The entire game state lives inside a **single goroutine** — no mutexes, no race conditions, deterministic updates.
 
 ---
 
 ### Event Loop
 
-```
+```go
 func (e *GardenEngine) Run() {
-    ticker := time.NewTicker(1 * time.Second)
+    broadcastTicker := time.NewTicker(1 * time.Millisecond)
+    decayTicker     := time.NewTicker(1 * time.Second)
 
     for {
         select {
         case event := <-e.events:
             e.handleEvent(event)
-
-        case <-ticker.C:
-            e.applyDecay()
-            e.broadcast()
+        case <-decayTicker.C:
+            e.applyDecayAll()
+        case <-broadcastTicker.C:
+            e.BroadcastState()
         }
     }
 }
@@ -158,18 +177,28 @@ func (e *GardenEngine) Run() {
 
 ---
 
+### Optimistic Concurrency
+
+Every event must carry the plot's current `Version`. If it doesn't match, the engine rejects the action with an `ERROR` message. This prevents stale actions from clobbering concurrent updates.
+
+---
+
 ## ⏱️ Simulation Rules
 
-### Decay (every tick)
+### Decay (every second, per occupied plot)
 
-* Hydration decreases
-* Weeds increase
-* Health recalculated
+Each tick applies the crop's profile values:
 
 ```
-plot.Hydration -= 0.2
-plot.Weeds += 0.1
-plot.Health = plot.Hydration - plot.Weeds
+plot.Hydration -= crop.ThirstRate
+plot.Weeds     += crop.WeedSusceptibility
+plot.Health     = clamp(plot.Hydration - plot.Weeds, 0, 100)
+```
+
+Growth only advances while the crop is alive (`Health > 0`):
+
+```
+plot.Growth += crop.GrowthRate
 ```
 
 ---
@@ -177,24 +206,35 @@ plot.Health = plot.Hydration - plot.Weeds
 ### Actions
 
 #### WATER
-
+Raises hydration by 20 (no-op if already full or crop is dead):
 ```
-plot.Hydration += 5
+plot.Hydration += 20
+plot.Health     = clamp(plot.Hydration - plot.Weeds, 0, 100)
 ```
 
 #### WEED
-
+Reduces weeds by 2 (no-op if weeds are 0 or crop is dead):
 ```
-plot.Weeds -= 3
+plot.Weeds  -= 2
+plot.Health  = clamp(plot.Hydration - plot.Weeds, 0, 100)
 ```
 
 #### PLANT
+Plants a crop. Allowed on empty plots or plots with a dead crop:
+```
+plot.Crop      = crop
+plot.Hydration = 100
+plot.Weeds     = 0
+plot.Health    = 100
+plot.Growth    = 0
+plot.Occupied  = true
+```
 
-```
-if !plot.Occupied {
-    plot.Occupied = true
-}
-```
+#### HARVEST
+Harvests a fully grown, living crop (`Growth == 100`, `Health > 0`). Adds `crop.HarvestScore` to `garden.Score` and clears the plot.
+
+#### REMOVE
+Removes a dead crop (`Health == 0`) from an occupied plot. Resets the plot to neutral state (`Hydration = 50`, `Health = 50`).
 
 ---
 
