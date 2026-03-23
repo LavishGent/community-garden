@@ -6,15 +6,15 @@ import (
 )
 
 type GardenEngine struct {
-	garden *Garden
-	events chan Event
+	garden    *Garden
+	events    chan Event
 	broadcast chan<- []byte
 }
 
 func NewGardenEngine(broadcast chan<- []byte) *GardenEngine {
 	return &GardenEngine{
-		garden: NewGarden(),
-		events: make(chan Event, 50), // buffered channel to hold events, not sure what the best size is at the moment
+		garden:    NewGarden(),
+		events:    make(chan Event, 50), // buffered channel to hold events, not sure what the best size is at the moment
 		broadcast: broadcast,
 	}
 }
@@ -31,7 +31,7 @@ func (e *GardenEngine) applyDecayAll() {
 
 func (e *GardenEngine) BroadcastState() {
 	msg := map[string]interface{}{
-		"type": "STATE",
+		"type":   "STATE",
 		"garden": e.garden,
 	}
 	data, err := json.Marshal(msg)
@@ -46,21 +46,21 @@ func (e *GardenEngine) handleEvent(event Event) {
 	plot, exist := e.garden.Plots[event.PlotID]
 	if !exist {
 		e.SendError(event.Reply, "plot doesn't exist")
-		return 
+		return
 	}
 	if plot.Version != event.Version {
 		e.SendError(event.Reply, "plot version mismatch")
-		return 
+		return
 	}
 	var err error
 	//switch case on event type
 	switch event.Type {
-	case "WATER":
+	case Water:
 		handleWater(plot)
-	case "WEED":
+	case Weed:
 		handleWeed(plot)
-	case "PLANT":
-		err = handlePlant(plot)
+	case Plant:
+		err = handlePlant(plot, &event.Crop)
 	default:
 		e.SendError(event.Reply, "event type not found")
 		return
@@ -69,10 +69,7 @@ func (e *GardenEngine) handleEvent(event Event) {
 		e.SendError(event.Reply, err.Error())
 		return
 	}
-	//? Should we increment on the event itself? 
-	//? this could be a race condition maybe??
 
-	//! no it's a signle go routine
 	plot.Version++
 }
 
@@ -81,14 +78,14 @@ func (e *GardenEngine) SendError(reply chan<- []byte, errMsg string) {
 		return
 	}
 	data, _ := json.Marshal(map[string]string{
-		"type": "ERROR",
+		"type":    "ERROR",
 		"message": errMsg,
 	})
 	reply <- data
 }
 
 func (e *GardenEngine) Run() {
-	ticker := time.NewTicker(1 * time.Second)
+	ticker := time.NewTicker(100 * time.Millisecond)
 	for {
 		select {
 		case event := <-e.events:

@@ -99,6 +99,8 @@ type Garden struct {
 ```
 type Plot struct {
     ID        string
+    Crop      CropType // CORN, WHEAT, COTTON,
+    Growth    float64
     Hydration float64
     Weeds     float64
     Occupied  bool
@@ -115,8 +117,9 @@ type Plot struct {
 type Event struct {
     Type    string
     PlotID  string
+    Crop    CropType
     Version int
-    Reply chan<- []byte
+    Reply   chan<- []byte
 }
 ```
 

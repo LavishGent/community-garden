@@ -8,18 +8,18 @@ import (
 )
 
 type Client struct {
-	hub *Hub
+	hub    *Hub
 	engine chan<- engine.Event
-	conn *websocket.Conn
-	send chan []byte
+	conn   *websocket.Conn
+	send   chan []byte
 }
 
 func NewClient(hub *Hub, engine chan<- engine.Event, conn *websocket.Conn) *Client {
 	return &Client{
-		hub: hub,
+		hub:    hub,
 		engine: engine,
-		conn: conn,
-		send: make(chan []byte, 256), // buffered channel to hold messages to send to the client, not sure what the best size is at the moment
+		conn:   conn,
+		send:   make(chan []byte, 256), // buffered channel to hold messages to send to the client, not sure what the best size is at the moment
 	}
 }
 
@@ -35,12 +35,12 @@ func (c *Client) readPump() {
 		if err != nil {
 			break
 		}
-		
+
 		//parse message into event
 		var incoming struct {
-			Type string `json:"type"`
-			PlotID string `json:"plotId"`
-			Version int `json:"version"`
+			Type    engine.EventType `json:"type"`
+			PlotID  string           `json:"plotId"`
+			Version int              `json:"version"`
 		}
 		if err := json.Unmarshal(message, &incoming); err != nil {
 			// handle error, maybe send error back to client?
@@ -49,13 +49,13 @@ func (c *Client) readPump() {
 
 		// channel for engine to reply with errors
 		reply := make(chan []byte, 1) //only needs a buffer of 1 since engine will only send one response per event
-		
+
 		//send event to engine
 		c.engine <- engine.Event{
-			Type: incoming.Type,
-			PlotID: incoming.PlotID,
+			Type:    incoming.Type,
+			PlotID:  incoming.PlotID,
 			Version: incoming.Version,
-			Reply: reply,
+			Reply:   reply,
 		}
 
 		// listen for error in background
