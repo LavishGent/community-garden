@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Stage, Layer, Rect } from 'react-konva'
-import type { Garden } from '../hooks/useSocket'
+import type { Garden as GardenType } from '../hooks/useSocket'
 import Plot from './Plot'
 import { STAT_SPRITES, CROP_SPRITES } from './cropSprites'
 import type { SpriteData } from './cropSprites'
@@ -39,7 +39,7 @@ function SpriteIcon({ pixels, scale, size }: { pixels: SpriteData; scale: number
 }
 
 interface GardenProps {
-  garden: Garden
+  garden: GardenType
   onAction: (plotId: string, type: string, version: number, crop?: string) => void
 }
 
@@ -52,72 +52,76 @@ export default function Garden({ garden, onAction }: GardenProps) {
   }
 
   return (
-    <div>
-      {/* Action toolbar */}
-      <div style={{ display: 'flex', gap: '8px', marginBottom: '8px', flexWrap: 'wrap' }}>
-        {ACTIONS.map(({ type, spriteKey, label }) => (
-          <button
-            key={type}
-            onClick={() => setSelectedAction(type)}
-            style={{
-              padding: '8px 12px',
-              cursor: 'pointer',
-              fontWeight: selectedAction === type ? 'bold' : 'normal',
-              border: selectedAction === type ? '2px solid #000' : '2px solid transparent',
-              borderRadius: '4px',
-              background: selectedAction === type ? '#e7f5e9' : '#f5f5f5',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-            }}
-          >
-            <SpriteIcon pixels={STAT_SPRITES[spriteKey] ?? []} scale={3} size={24} />
-            <span>{label}</span>
-          </button>
-        ))}
-      </div>
-
-      {/* Crop picker — only visible when PLANT is selected */}
-      {selectedAction === 'PLANT' && (
-        <div style={{ display: 'flex', gap: '8px', marginBottom: '16px', flexWrap: 'wrap' }}>
-          {CROPS.map(({ type, label }) => (
-            <button
-              key={type}
-              onClick={() => setSelectedCrop(type)}
-              style={{
-                padding: '6px 10px',
-                cursor: 'pointer',
-                fontWeight: selectedCrop === type ? 'bold' : 'normal',
-                border: selectedCrop === type ? '2px solid #16a34a' : '2px solid transparent',
-                borderRadius: '4px',
-                background: selectedCrop === type ? '#dcfce7' : '#f5f5f5',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-                fontSize: '13px',
-              }}
-            >
-              <SpriteIcon pixels={CROP_SPRITES[type]?.seedling ?? []} scale={2} size={32} />
-              <span>{label}</span>
-            </button>
-          ))}
+    <div className="flex flex-col md:flex-row gap-8 items-start">
+      {/* Sidebar for actions and crops */}
+      <aside className="w-full md:w-64 flex flex-col gap-6 p-4 bg-gray-800 rounded-xl border border-gray-700 shadow-lg">
+        <div>
+          <h2 className="text-xl font-bold text-gray-200 mb-4 border-b border-gray-700 pb-2">Tools</h2>
+          <div className="flex flex-col gap-2">
+            {ACTIONS.map(({ type, spriteKey, label }) => (
+              <button
+                key={type}
+                onClick={() => setSelectedAction(type)}
+                className={`
+                  flex items-center gap-3 px-4 py-3 rounded-lg text-left transition-colors duration-200
+                  ${selectedAction === type
+                    ? 'bg-blue-600/20 border-2 border-blue-500 text-blue-100 shadow-inner'
+                    : 'bg-gray-700 border-2 border-transparent text-gray-300 hover:bg-gray-600 hover:border-gray-500'}
+                `}
+              >
+                <div className="p-1 bg-gray-900/50 rounded flex items-center justify-center shrink-0 w-8 h-8">
+                  <SpriteIcon pixels={STAT_SPRITES[spriteKey] ?? []} scale={3} size={24} />
+                </div>
+                <span className="font-semibold">{label}</span>
+              </button>
+            ))}
+          </div>
         </div>
-      )}
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '8px' }}>
-        {PLOT_IDS.map(id => {
-          const plot = garden.plots[id]
-          if (!plot) return null
-          return (
-            <Plot
-              key={id}
-              plot={plot}
-              selectedAction={selectedAction}
-              onAction={handlePlotAction}
-            />
-          )
-        })}
-      </div>
+        {/* Crop picker — only visible when PLANT is selected */}
+        {selectedAction === 'PLANT' && (
+          <div className="animate-in fade-in slide-in-from-top-4 duration-300">
+            <h2 className="text-xl font-bold text-gray-200 mb-4 border-b border-gray-700 pb-2">Seeds</h2>
+            <div className="flex flex-col gap-2">
+              {CROPS.map(({ type, label }) => (
+                <button
+                  key={type}
+                  onClick={() => setSelectedCrop(type)}
+                  className={`
+                    flex items-center gap-3 px-4 py-3 rounded-lg text-left transition-colors duration-200
+                    ${selectedCrop === type
+                      ? 'bg-emerald-600/20 border-2 border-emerald-500 text-emerald-100 shadow-inner'
+                      : 'bg-gray-700 border-2 border-transparent text-gray-300 hover:bg-gray-600 hover:border-gray-500'}
+                  `}
+                >
+                  <div className="p-1 bg-gray-900/50 rounded flex items-center justify-center shrink-0 w-10 h-10">
+                    <SpriteIcon pixels={CROP_SPRITES[type]?.seedling ?? []} scale={2} size={32} />
+                  </div>
+                  <span className="font-semibold text-sm">{label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+      </aside>
+
+      {/* Main Grid Area */}
+      <section className="flex-1 bg-gray-800 p-6 rounded-xl border border-gray-700 shadow-lg w-full overflow-x-auto">
+        <div className="grid grid-cols-5 gap-4 min-w-[600px] mx-auto">
+          {PLOT_IDS.map(id => {
+            const plot = garden.plots[id]
+            if (!plot) return null
+            return (
+              <Plot
+                key={id}
+                plot={plot}
+                selectedAction={selectedAction}
+                onAction={handlePlotAction}
+              />
+            )
+          })}
+        </div>
+      </section>
     </div>
   )
 }

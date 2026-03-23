@@ -1,19 +1,19 @@
 import { Stage, Layer, Rect, Text, Group } from 'react-konva'
-import type { Plot } from "../hooks/useSocket";
+import type { Plot as PlotType } from "../hooks/useSocket";
 import { CROP_SPRITES, STAT_SPRITES, getCropStage } from './cropSprites'
 
 type Action = 'WATER' | 'WEED' | 'PLANT' | 'HARVEST'
 
 interface PlotProps {
-   plot: Plot,
+   plot: PlotType,
    selectedAction: Action
    onAction: (plotId: string, type: string, version: number) => void
 }
 
-function getColor(health: number): string {
-   if (health > 66) return "#4CAF50";
-   if (health > 33) return "#FFEB3B";
-   return "#F44336";
+function getHealthStyles(health: number): string {
+   if (health > 66) return "border-emerald-500 shadow-[0_0_15px_rgba(16,185,129,0.2)]";
+   if (health > 33) return "border-yellow-500 shadow-[0_0_15px_rgba(234,179,8,0.2)]";
+   return "border-red-500 shadow-[0_0_15px_rgba(239,68,68,0.3)]";
 }
 
 const CROP_SCALE = 4   // 16×16 sprite → 64×64px
@@ -65,7 +65,7 @@ function PixelPlant({ crop, growth, weeds }: { crop: string; growth: number; wee
 }
 
 // 4-stat bar: growth, hydration, health, weeds — laid out as 2×2 grid
-function StatBar({ plot }: { plot: Plot }) {
+function StatBar({ plot }: { plot: PlotType }) {
   const stats: { key: string; value: number }[] = [
     { key: 'growth',    value: plot.growth    },
     { key: 'hydration', value: plot.hydration },
@@ -97,9 +97,10 @@ function StatBar({ plot }: { plot: Plot }) {
                 x={STAT_SPRITE_W + 3}
                 y={4}
                 text={String(Math.round(value))}
-                fontSize={11}
+                fontSize={12}
                 fontFamily="monospace"
-                fill="#1c1917"
+                fill="#f3f4f6" // text-gray-100
+                fontStyle="bold"
               />
             </Group>
           )
@@ -119,19 +120,20 @@ export default function Plot({ plot, selectedAction, onAction }: PlotProps) {
       onAction(plot.id, selectedAction, plot.version);
    }
 
+   const baseClasses = "relative rounded-xl transition-all duration-200 min-h-[140px] flex flex-col overflow-hidden"
+
    if (!plot.occupied) {
       return (
       <div
         onClick={handleClick}
-        style={{
-          backgroundColor: '#92400e',
-          padding: '8px',
-          borderRadius: '6px',
-          cursor: selectedAction === 'PLANT' ? 'pointer' : 'default',
-          minHeight: '80px',
-        }}
+        className={`${baseClasses} bg-amber-900/40 border-2 border-amber-900/60 hover:bg-amber-900/60
+          ${selectedAction === 'PLANT' ? 'cursor-pointer hover:border-emerald-500' : 'cursor-default'}
+        `}
       >
-        <span style={{ fontWeight: 'bold', fontSize: '12px', color: '#fef3c7' }}>{plot.id}</span>
+        <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0IiBoZWlnaHQ9IjQiPgo8cmVjdCB3aWR0aD0iNCIgaGVpZ2h0PSI0IiBmaWxsPSIjNzg1MzNhIj48L3JlY3Q+CjxyZWN0IHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9IiM4YjVkMzMiPjwvcmVjdD4KPC9zdmc+')] opacity-30 mix-blend-overlay pointer-events-none"></div>
+        <div className="p-2 z-10">
+          <span className="font-bold text-xs text-amber-200/50 bg-amber-950/50 px-2 py-1 rounded">{plot.id}</span>
+        </div>
       </div>
     )
    }
@@ -139,25 +141,25 @@ export default function Plot({ plot, selectedAction, onAction }: PlotProps) {
    return (
     <div
       onClick={handleClick}
-      style={{
-        backgroundColor: getColor(plot.health),
-        padding: '8px',
-        borderRadius: '6px',
-        cursor: isDisabled ? 'not-allowed' : 'pointer',
-        opacity: isDisabled ? 0.5 : 1,
-        userSelect: 'none',
-        minHeight: '80px',
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        gap: '4px',
-      }}
+      className={`${baseClasses} bg-amber-950/80 border-2 ${getHealthStyles(plot.health)}
+        ${isDisabled ? 'cursor-not-allowed opacity-60' : 'cursor-pointer hover:brightness-110 active:scale-95'}
+      `}
     >
-      <span style={{ fontWeight: 'bold', fontSize: '12px', alignSelf: 'flex-start' }}>{plot.id}</span>
-      <PixelPlant crop={plot.crop} growth={plot.growth} weeds={plot.weeds} />
-      <StatBar plot={plot} />
+      <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0IiBoZWlnaHQ9IjQiPgo8cmVjdCB3aWR0aD0iNCIgaGVpZ2h0PSI0IiBmaWxsPSIjNzg1MzNhIj48L3JlY3Q+CjxyZWN0IHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9IiM4YjVkMzMiPjwvcmVjdD4KPC9zdmc+')] opacity-20 mix-blend-overlay pointer-events-none"></div>
+
+      <div className="p-2 flex-1 flex flex-col items-center justify-between z-10 w-full gap-2">
+        <div className="w-full flex justify-start">
+          <span className="font-bold text-xs text-gray-300 bg-gray-900/60 px-2 py-1 rounded shadow-sm">{plot.id}</span>
+        </div>
+
+        <div className="flex-1 flex items-center justify-center filter drop-shadow-md">
+          <PixelPlant crop={plot.crop} growth={plot.growth} weeds={plot.weeds} />
+        </div>
+
+        <div className="bg-gray-900/80 p-2 rounded-lg w-full border border-gray-700/50 shadow-inner">
+          <StatBar plot={plot} />
+        </div>
+      </div>
     </div>
   )
 }
-
-
